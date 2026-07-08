@@ -1,0 +1,525 @@
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>臨時線路預約系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: linear-gradient(to bottom right, #f5deb3, #e5e7eb); }
+    .card { transition: all 0.3s ease; }
+    .card:hover { transform: translateY(-5px); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); }
+    .calendar-container { position: relative; overflow: hidden; width: 100%; padding-bottom: 100%; }
+    .calendar-container iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+    #imagePreview { border: 2px dashed #cbd5e0; cursor: pointer; min-height: 150px; }
+    #imagePreview:hover { background-color: #b2caf5; }
+    .preview-item { position: relative; display: inline-block; margin: 8px; text-align: center; }
+    .preview-item img { max-height: 80px; max-width: 80px; object-fit: cover; border-radius: 8px; border: 1px solid #ddd; }
+    .preview-item p { font-size: 12px; color: #666; margin-top: 4px; }
+    .delete-btn { position: absolute; top: -8px; right: -8px; background: red; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; font-size: 12px; line-height: 20px; }
+    #deleteModal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 999; align-items: center; justify-content: center; }
+    #deleteModal.show { display: flex; }
+    .modal-box { background: white; border-radius: 12px; padding: 24px; width: 90%; max-width: 480px; max-height: 80vh; overflow-y: auto; }
+    .booking-item { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; }
+    .booking-del-btn { background: #fee2e2; color: #b91c1c; border: none; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 13px; flex-shrink: 0; }
+    .booking-del-btn:hover { background: #fecaca; }
+  </style>
+  <script>
+    var isadmin = false;
+    var phoneMap = {};
+
+    function loadUserInfo() {
+      const fullEmail = '<?= userEmail ?>';
+      if (fullEmail) {
+        const username = fullEmail.split('@')[0];
+        document.getElementById('displayName').textContent = username;
+        document.getElementById('name').value = username;
+        const ext = phoneMap[fullEmail.toLowerCase().trim()];
+        if (ext) document.getElementById('phone').value = ext;
+      } else {
+        document.getElementById('displayName').textContent = '使用者';
+      }
+    }
+
+    google.script.run
+      .withSuccessHandler(function(adminData) {
+        const userEmail = "<?= userEmail ?>".toLowerCase().trim();
+        const isAdmin = adminData.some(row =>
+          row[0] && String(row[0]).toLowerCase().trim() === userEmail
+        );
+        const btn = document.getElementById('maintain');
+        if (isAdmin) {
+          btn.classList.remove('hidden');
+          isadmin = true;
+        }
+      })
+      .withFailureHandler(err => console.error(err))
+      .getAdmin();
+
+    window.addEventListener('load', function() {
+      google.script.run
+        .withSuccessHandler(function(mapFromServer) {
+          phoneMap = mapFromServer || {};
+          console.log(`已載入 ${Object.keys(phoneMap).length} 筆分機資料`);
+          loadUserInfo();
+        })
+        .withFailureHandler(function(err) {
+          console.error('載入分機資料失敗', err);
+          document.getElementById('phone').value = '無法載入資料';
+          loadUserInfo();
+        })
+        .getUserPhoneMap();
+    });
+  </script>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+  <div class="max-w-7xl mx-auto">
+    <h1 class="text-4xl font-bold text-gray-800 mb-8 text-center">
+      歡迎，<strong id="displayName">載入中...</strong> 使用線路預約系統
+    </h1>
+    <div class="flex flex-col lg:flex-row gap-8">
+      <div class="lg:w-3/10 w-full">
+        <div class="card bg-white rounded-2xl shadow-xl p-6 md:p-8">
+          <div class="flex items-center justify-center gap-4 mb-6">
+            <h2 class="text-2xl font-bold text-gray-800">線路預約</h2>
+            <button
+              onclick="location.href=''"
+              id="maintain"
+              class="bg-blue-200 text-gray-800 py-3 rounded-lg font-medium hover:bg-gray-300 transition text-2xl hidden">
+              前往使用者分機表
+            </button>
+          </div>
+          <form id="form" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">開始日期</label>
+                <input type="date" id="startDate" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">結束日期</label>
+                <input type="date" id="endDate" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">線路選擇</label>
+              <select id="type" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="">請選擇</option>
+                <option value="self">飯店專用線路(上限 2/天)</option>
+                <option value="ch" selected>中華電信臨時線路</option>
+                <option value="ph">臨時電話線路</option>
+                <option value="wf">WIFI改名(請於備註註明更改名稱)</option>
+              </select>
+            </div>
+            <div id="line" class="mt-4 hidden">
+              <label class="block text-sm font-medium text-gray-700 mb-1">線路條數（上限 2 條）</label>
+              <select id="line_count" name="line_count" class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <option value="1">1</option>
+                <option value="2">2</option>
+              </select>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">負責業務MAIL</label>
+                <input type="text" id="name" required class="w-full px-2 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" style="text-transform: lowercase;">
+              </div>
+              <div>
+                <span style="display: inline-block; position: relative; top: 50%">@gmail.com.tw</span>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">分機</label>
+                <input type="tel" id="phone" required class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" disabled>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">活動名稱</label>
+              <input type="text" id="activityName" required placeholder="例如：產品發表會"
+                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">場地名稱</label>
+              <input type="text" id="venue" required placeholder="請輸入場地名稱（如：3F宴客樓）"
+                     class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">相關圖檔（選填，可多張）</label>
+              <div id="imagePreview" class="mt-2 mb-3 border border-dashed border-gray-400 rounded-lg p-4 text-center flex flex-wrap justify-center items-center min-h-[150px]">
+                <p class="text-gray-500 w-full">拖放多張圖片、Ctrl+V 貼上，或點擊選擇檔案</p>
+              </div>
+              <input type="file" id="image" accept="image/*" multiple class="hidden">
+              <button type="button" onclick="document.getElementById('image').click()"
+                      class="w-full bg-gray-200 text-gray-800 py-3 rounded-lg font-medium hover:bg-gray-300 transition">
+                選擇多張檔案
+              </button>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">備註</label>
+              <textarea id="note" rows="12" class="w-full px-4 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"></textarea>
+            </div>
+            <button type="button" id="submitBtn" onclick="submitForm()"
+                    class="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 shadow-md transition">
+              送出預約
+            </button>
+            <button type="button" id="deleteBtn" onclick="openDeleteModal()"
+                    class="w-full bg-red-100 text-red-700 py-3 rounded-lg font-medium hover:bg-red-200 transition">
+              刪除預約
+            </button>
+          </form>
+        </div>
+      </div>
+      <div class="lg:w-7/10 w-full">
+        <div class="card bg-white rounded-2xl shadow-xl p-4 md:p-6">
+          <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">即時月曆</h2>
+          <div class="calendar-container">
+            <iframe id="calendarIframe"
+              src="&ctz=Asia/Taipei&mode=MONTH&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0&wkst=1&bgcolor=%23ffffff"
+              frameborder="0" scrolling="no"></iframe>
+          </div>
+        </div>
+        <div class="card bg-white rounded-2xl shadow-xl p-4 md:p-6" style="margin-top:5px">
+          <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">即時行程</h2>
+          <div class="calendar-container" style="height: 100px; overflow: hidden;">
+            <iframe id="agendaIframe"
+              src="&ctz=Asia/Taipei&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0&wkst=1&bgcolor=%23ffffff"
+              style="border-width:0; width:100%; height:100%;"
+              frameborder="0" scrolling="yes">
+            </iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 刪除 Modal -->
+  <div id="deleteModal">
+    <div class="modal-box">
+      <h3 style="margin:0 0 16px; font-size:18px; font-weight:600; color:#111;">刪除預約</h3>
+      <div style="display:flex; gap:8px; margin-bottom:12px;">
+        <div style="flex:1;">
+          <label style="font-size:13px; color:#555; display:block; margin-bottom:4px;">查詢起始日</label>
+          <input type="date" id="delStart" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+        </div>
+        <div style="flex:1;">
+          <label style="font-size:13px; color:#555; display:block; margin-bottom:4px;">查詢結束日</label>
+          <input type="date" id="delEnd" class="w-full px-3 py-2 border border-gray-300 rounded-lg">
+        </div>
+      </div>
+      <button onclick="searchBookings()" class="w-full bg-blue-600 text-white py-2 rounded-lg mb-4 font-medium hover:bg-blue-700 transition">
+        查詢預約
+      </button>
+      <div id="bookingList"></div>
+      <button onclick="closeDeleteModal()" class="w-full bg-gray-200 text-gray-700 py-2 rounded-lg mt-2 font-medium hover:bg-gray-300 transition">
+        關閉
+      </button>
+    </div>
+  </div>
+
+  <script>
+    let files = [];
+
+    document.getElementById('type').addEventListener('change', function() {
+      const wrapper = document.getElementById('line');
+      wrapper.style.display = (this.value === 'self') ? 'block' : 'none';
+    });
+
+    function debounce(fn, delay) {
+      let timer;
+      return function(...args) {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn.apply(this, args), delay);
+      };
+    }
+
+    const nameInput  = document.getElementById('name');
+    const phoneInput = document.getElementById('phone');
+
+    nameInput.addEventListener('input', debounce(function() {
+      const inputValue = this.value.trim().toLowerCase();
+      if (inputValue.length === 0) { phoneInput.value = ''; return; }
+      const extension = phoneMap[inputValue + "@gmail.com.tw"];
+      phoneInput.value = (extension && extension.trim() !== '') ? extension.trim() : '查無此業務分機';
+    }, 300));
+
+    document.getElementById('startDate').addEventListener('change', function() {
+      const startValue = this.value;
+      if (!startValue) return;
+      const today = new Date();
+      const minSelectable = new Date(today);
+      minSelectable.setDate(today.getDate() + 2);
+      const minDateStr = minSelectable.toISOString().split('T')[0];
+      if (startValue < minDateStr && !isadmin) {
+        this.value = minDateStr;
+        alert("預約必須至少提前兩天，最早可選 " + minDateStr);
+      }
+      document.getElementById('endDate').value = this.value;
+    });
+
+    window.addEventListener('load', function() {
+      const startValue = document.getElementById('startDate').value;
+      if (startValue) document.getElementById('endDate').value = startValue;
+    });
+
+    document.getElementById('endDate').addEventListener('change', function() {
+      const start = new Date(document.getElementById('startDate').value);
+      const end = new Date(this.value);
+      if (this.value && document.getElementById('startDate').value && end < start) {
+        alert("結束日期不能早於開始日期，已自動調整為開始日期");
+        this.value = document.getElementById('startDate').value;
+      }
+    });
+
+    document.addEventListener('paste', function(e) {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      let added = false;
+      for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          if (blob) { addFile(blob); added = true; }
+        }
+      }
+      if (added) e.preventDefault();
+    });
+
+    const preview = document.getElementById('imagePreview');
+    preview.addEventListener('dragover', e => { e.preventDefault(); preview.classList.add('border-blue-500'); });
+    preview.addEventListener('dragleave', () => preview.classList.remove('border-blue-500'));
+    preview.addEventListener('drop', e => {
+      e.preventDefault();
+      preview.classList.remove('border-blue-500');
+      for (let file of e.dataTransfer.files) {
+        if (file.type.startsWith('image/')) addFile(file);
+      }
+    });
+
+    document.getElementById('image').addEventListener('change', e => {
+      for (let file of e.target.files) addFile(file);
+    });
+
+    function addFile(file) {
+      if (files.length >= 10) return alert("最多 10 張圖片");
+      if (file.size > 100 * 1024 * 1024) return alert("單張圖檔過大，請小於 100MB");
+      files.push(file);
+      renderPreviews();
+    }
+
+    function renderPreviews() {
+      preview.innerHTML = '';
+      if (files.length === 0) {
+        preview.innerHTML = '<p class="text-gray-500 w-full">拖放多張圖片、Ctrl+V 貼上，或點擊選擇檔案</p>';
+        return;
+      }
+      files.forEach((file, index) => {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        const img = document.createElement('img');
+        img.src = URL.createObjectURL(file);
+        div.appendChild(img);
+        const p = document.createElement('p');
+        p.textContent = `${file.name} (${(file.size / 1024).toFixed(1)} KB)`;
+        div.appendChild(p);
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = 'X';
+        deleteBtn.onclick = () => { files.splice(index, 1); renderPreviews(); };
+        div.appendChild(deleteBtn);
+        preview.appendChild(div);
+      });
+    }
+
+    function compressImage(file, maxWidth = 1200, quality = 0.75) {
+      return new Promise(resolve => {
+        if (!file.type.startsWith('image/')) { resolve(file); return; }
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+          const scale = Math.min(1, maxWidth / img.width);
+          const canvas = document.createElement('canvas');
+          canvas.width  = Math.round(img.width  * scale);
+          canvas.height = Math.round(img.height * scale);
+          canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+          canvas.toBlob(blob => {
+            resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }));
+            URL.revokeObjectURL(url);
+          }, 'image/jpeg', quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
+
+    async function submitForm() {
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = '處理中...';
+      submitBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+      submitBtn.classList.add('bg-gray-400', 'cursor-not-allowed');
+
+      const data = {
+        startDate:    document.getElementById('startDate').value,
+        endDate:      document.getElementById('endDate').value,
+        type:         document.getElementById('type').value,
+        activityName: document.getElementById('activityName').value.trim(),
+        venue:        document.getElementById('venue').value.trim(),
+        name:         document.getElementById('name').value.trim(),
+        phone:        document.getElementById('phone').value.trim(),
+        note:         document.getElementById('note').value.trim(),
+        line:         ""
+      };
+
+      if (data.type === 'self') data.line = document.getElementById('line_count').value;
+
+      if (!data.startDate || !data.endDate || !data.type || !data.activityName || !data.venue || !data.name) {
+        alert("請填寫所有必填欄位");
+        unlockButton();
+        return;
+      }
+      if (data.type === 'self' && !data.line) {
+        alert("請選擇線路條數");
+        unlockButton();
+        return;
+      }
+
+      const start = new Date(data.startDate);
+      const end   = new Date(data.endDate);
+      if (end < start) {
+        alert("結束日期不能早於開始日期");
+        unlockButton();
+        return;
+      }
+
+      if (files.length === 0) {
+        google.script.run
+          .withSuccessHandler(msg => { resetAndAlert(msg); unlockButton(); })
+          .withFailureHandler(err => { alert("發生錯誤：" + err.message); unlockButton(); })
+          .processBooking(data, []);
+        return;
+      }
+
+      try {
+        const compressed = await Promise.all(files.map(f => compressImage(f)));
+        const imageDataList = await Promise.all(compressed.map((file) =>
+          new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve({ base64: e.target.result.split(',')[1], name: file.name });
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          })
+        ));
+        google.script.run
+          .withSuccessHandler(msg => { resetAndAlert(msg); unlockButton(); })
+          .withFailureHandler(err => { alert("錯誤：" + err.message); unlockButton(); })
+          .processBooking(data, imageDataList);
+      } catch (e) {
+        alert("圖片處理失敗：" + e.message);
+        unlockButton();
+      }
+    }
+
+    function unlockButton() {
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '送出預約';
+      submitBtn.classList.remove('bg-gray-400', 'cursor-not-allowed');
+      submitBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+    }
+
+    const CALENDAR_BASE = "&ctz=Asia/Taipei";
+
+    function refreshCalendar() {
+      const ts = '&ts=' + new Date().getTime();
+      const calIframe = document.getElementById('calendarIframe');
+      if (calIframe) calIframe.src = CALENDAR_BASE + '&mode=MONTH&showTitle=0&showNav=1&showDate=1&showPrint=0&showTabs=0&showCalendars=0&wkst=1&bgcolor=%23ffffff' + ts;
+      const agendaIframe = document.getElementById('agendaIframe');
+      if (agendaIframe) agendaIframe.src = CALENDAR_BASE + '&mode=AGENDA&showTitle=0&showNav=0&showDate=0&showPrint=0&showTabs=0&showCalendars=0&showTz=0&wkst=1&bgcolor=%23ffffff' + ts;
+    }
+
+    function resetAndAlert(msg) {
+      alert(msg);
+      document.getElementById('form').reset();
+      document.getElementById('line').style.display = 'none';
+      files = [];
+      renderPreviews();
+      setTimeout(refreshCalendar, 500);
+      loadUserInfo();
+    }
+
+    setInterval(refreshCalendar, 60 * 1000);
+
+    // ── 刪除功能 ──
+    function openDeleteModal() {
+      const today = new Date().toISOString().split('T')[0];
+      const later = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0];
+      document.getElementById('delStart').value = today;
+      document.getElementById('delEnd').value   = later;
+      document.getElementById('bookingList').innerHTML = '';
+      document.getElementById('deleteModal').classList.add('show');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.remove('show');
+    }
+
+    // 點 modal 背景關閉
+    document.getElementById('deleteModal').addEventListener('click', function(e) {
+      if (e.target === this) closeDeleteModal();
+    });
+
+    function searchBookings() {
+      const s = document.getElementById('delStart').value;
+      const e = document.getElementById('delEnd').value;
+      if (!s || !e) return alert("請選擇查詢日期範圍");
+      document.getElementById('bookingList').innerHTML = '<p style="color:#888; font-size:13px; text-align:center;">查詢中...</p>';
+      google.script.run
+        .withSuccessHandler(renderBookingList)
+        .withFailureHandler(err => alert("查詢失敗：" + err.message))
+        .getMyBookings(s, e);
+    }
+
+    function renderBookingList(list) {
+      const container = document.getElementById('bookingList');
+      if (!list || list.length === 0) {
+        container.innerHTML = '<p style="color:#888; font-size:13px; text-align:center;">此區間內無可刪除的預約</p>';
+        return;
+      }
+      container.innerHTML = list.map(evt => `
+        <div class="booking-item">
+          <div style="flex:1; min-width:0; margin-right:12px;">
+            <p style="margin:0; font-size:14px; font-weight:500; color:#111; word-break:break-all;">${evt.title}</p>
+            <p style="margin:2px 0 0; font-size:12px; color:#666;">${evt.start} → ${evt.end}</p>
+            <p style="margin:2px 0 0; font-size:12px; color:#999;">${evt.creator}</p>
+          </div>
+          <button class="booking-del-btn" onclick="confirmDelete('${evt.id}', '${evt.title.replace(/'/g, "\\'")}', this)">
+            刪除
+          </button>
+        </div>
+      `).join('');
+    }
+
+    function confirmDelete(eventId, title, btnEl) 
+    {
+      if (!confirm(`確定要刪除此預約嗎？\n\n「${title}」\n\n刪除後無法復原`)) return;
+
+      // 鎖住按鈕
+      btnEl.disabled = true;
+      btnEl.textContent = '刪除中...';
+      btnEl.style.opacity = '0.5';
+      btnEl.style.cursor = 'not-allowed';
+
+      google.script.run
+        .withSuccessHandler(function(msg) {
+          alert(msg);
+          searchBookings();
+          setTimeout(refreshCalendar, 500);
+        })
+        .withFailureHandler(function(err) {
+          alert("刪除失敗：" + err.message);
+          // 失敗時解鎖
+          btnEl.disabled = false;
+          btnEl.textContent = '刪除';
+          btnEl.style.opacity = '1';
+          btnEl.style.cursor = 'pointer';
+        })
+        .deleteBooking(eventId);
+    }
+  </script>
+</body>
+</html>
