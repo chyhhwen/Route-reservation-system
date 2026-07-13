@@ -106,8 +106,14 @@ function processBooking(data, images) {
     const countByDate = {};
     allEvents.forEach(e => {
       if (e.getTitle().startsWith(typeInfo.prefix)) {
-        const d = Utilities.formatDate(e.getAllDayStartDate(), "Asia/Taipei", "yyyy-MM-dd");
-        countByDate[d] = (countByDate[d] || 0) + 1;
+        onst evStart = e.getAllDayStartDate();
+        const evEnd = e.getAllDayEndDate(); // exclusive end date
+        let d = new Date(evStart);
+        while (d < evEnd) {
+          const dStr = Utilities.formatDate(d, "Asia/Taipei", "yyyy-MM-dd");
+          countByDate[dStr] = (countByDate[dStr] || 0) + 1;
+          d.setDate(d.getDate() + 1);
+        }
       }
     });
 
