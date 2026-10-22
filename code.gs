@@ -106,7 +106,7 @@ function processBooking(data, images) {
     const countByDate = {};
     allEvents.forEach(e => {
       if (e.getTitle().startsWith(typeInfo.prefix)) {
-        onst evStart = e.getAllDayStartDate();
+        const evStart = e.getAllDayStartDate();
         const evEnd = e.getAllDayEndDate(); // exclusive end date
         let d = new Date(evStart);
         while (d < evEnd) {
